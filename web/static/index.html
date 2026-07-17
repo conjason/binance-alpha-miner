@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AlphaMaster · 量化因子挖掘中心</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&family=Orbitron:wght@500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css?v=27" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <!-- 背景动效层 -->
+  <div class="bg-layers" aria-hidden="true">
+    <div class="bg-aurora"></div>
+    <canvas id="glyphCanvas" class="bg-canvas"></canvas>
+    <canvas id="neuralCanvas" class="bg-canvas"></canvas>
+    <div class="bg-grid"></div>
+    <div class="bg-scan"></div>
+    <div class="bg-vignette"></div>
+  </div>
+
+  <div class="app">
+    <header class="header">
+      <div class="brand">
+        <div class="brand-mark" data-text="α">α<span class="brand-ring"></span></div>
+        <div>
+          <h1>AlphaMaster</h1>
+          <p>基于深度神经网络强化学习的量化因子挖掘中心</p>
+        </div>
+      </div>
+      <div class="header-meta" id="headerMeta">
+        <label class="debug-toggle-label">
+          <input type="checkbox" id="debugModeCheck" />
+          <span>调试模式</span>
+        </label>
+        <span class="pill" id="jobPill"><i class="pill-dot"></i>空闲</span>
+        <span class="meta-item" id="deviceMeta">—</span>
+      </div>
+    </header>
+
+    <!-- 步骤导航 -->
+    <nav class="stepper" id="stepper">
+      <button type="button" class="step active" data-page="train">
+        <span class="step-index">01</span>
+        <span class="step-body">
+          <span class="step-title">模型训练</span>
+          <span class="step-sub">因子挖掘 · 强化学习</span>
+        </span>
+      </button>
+      <span class="step-link"></span>
+      <button type="button" class="step" data-page="backtest">
+        <span class="step-index">02</span>
+        <span class="step-body">
+          <span class="step-title">策略回测</span>
+          <span class="step-sub">资金曲线 · 绩效评估</span>
+        </span>
+      </button>
+      <span class="step-link"></span>
+      <button type="button" class="step" data-page="realtime">
+        <span class="step-index">03</span>
+        <span class="step-body">
+          <span class="step-title">实时分析</span>
+          <span class="step-sub">信号雷达 · 多品种并发</span>
+        </span>
+      </button>
+    </nav>
+
+    <!-- ══════════════ 步骤一：训练页 ══════════════ -->
+    <div class="page active" id="page-train">
+    <section class="panel launch-panel">
+      <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
+      <span class="hud-corner bl"></span><span class="hud-corner br"></span>
+      <h2>启动训练</h2>
+      <div class="launch-form launch-form-file">
+        <div class="launch-row launch-row-main">
+          <button type="button" class="btn btn-secondary btn-browse" id="browseBtn">选择数据文件</button>
+          <div class="data-file-card" id="dataFileCard">
+            <div class="data-file-empty">尚未选择数据文件</div>
+          </div>
+        </div>
+        <div class="launch-actions" role="group" aria-label="训练操作">
+          <button class="btn btn-primary" id="startBtn" disabled>开始训练</button>
+          <button class="btn btn-secondary" id="retrainBtn" disabled title="清除检查点，从头重新搜索（保留已有更优策略）">重新训练</button>
+          <button class="btn btn-danger" id="stopBtn" disabled>停止</button>
+          <span class="action-sep" aria-hidden="true"></span>
+          <button class="btn btn-secondary" id="exportBtn" disabled title="下载当前品种的最优策略 JSON">导出策略</button>
+          <button class="btn btn-secondary" id="exportTrainingBtn" disabled title="打包 checkpoint、训练曲线与策略为 zip">导出训练</button>
+          <button class="btn btn-secondary" id="importTrainingBtn" disabled title="上传 .zip 或 .pt，下次训练断点续训">导入训练</button>
+          <input type="file" id="importTrainingFile" accept=".zip,.pt" hidden />
+        </div>
+        <small class="field-hint">强制离线：只用本地 Parquet，不连接 MT5。命名：<code>{品种}_{周期}.parquet</code>，如 <code>XAUUSD_H1.parquet</code> / <code>002008_60min.parquet</code>（<code>60min</code>/<code>1h</code> 等同 <code>H1</code>）</small>
+      </div>
+    </section>
+
+    <div class="split">
+      <section class="panel chart-panel">
+        <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
+        <span class="hud-corner bl"></span><span class="hud-corner br"></span>
+        <div class="panel-head">
+          <h2 id="chartTitle">训练曲线</h2>
+          <span class="hint" id="chartHint">选择文件并开始训练后显示</span>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="mainChart"></canvas>
+        </div>
+        <details class="chart-metrics-help" open>
+          <summary>指标说明</summary>
+          <ul class="metrics-list">
+            <li>
+              <span class="metric-swatch" style="--swatch: #34f5c8"></span>
+              <div>
+                <strong>最优分数</strong>
+                <p>到目前为止找到的最好因子公式得分，越高表示回测表现越好，曲线阶梯上升说明发现了更优公式。</p>
+              </div>
+            </li>
+            <li>
+              <span class="metric-swatch" style="--swatch: #38bdf8"></span>
+              <div>
+                <strong>验证分数</strong>
+                <p>当前这一步在验证集上的平均得分，反映近期一批公式的整体质量，会有起伏属正常。</p>
+              </div>
+            </li>
+          </ul>
+        </details>
+        <div class="formula-box" id="formulaBox">
+          <span class="formula-label">最优公式</span>
+          <code id="formulaText">—</code>
+        </div>
+      </section>
+
+      <section class="panel log-panel">
+        <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
+        <span class="hud-corner bl"></span><span class="hud-corner br"></span>
+        <div class="panel-head">
+          <h2>训练日志</h2>
+          <span class="hint" id="logHint">—</span>
+        </div>
+        <pre class="log-view" id="logView">等待任务…</pre>
+      </section>
+    </div>
+
+    <section class="panel howto-panel">
+      <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
+      <span class="hud-corner bl"></span><span class="hud-corner br"></span>
+      <details class="chart-metrics-help bt-howto" open>
+        <summary>训练说明：并行？最优分数 / 验证分数是什么？</summary>
+        <ol class="bt-howto-list">
+          <li>
+            <strong>单品种单周期就已经把 CPU 吃满了</strong>
+            <p>挖因子这一步计算很重：特征、公式搜索、回测验证会把机器算力用到接近满载。这时再并行开第二个品种或另一个周期，大家只是在抢同一批 CPU，谁也跑不快。</p>
+          </li>
+          <li>
+            <strong>并行并不等于整体更快</strong>
+            <p>两路一起跑，往往各自都变慢，总完工时间通常不比「先训完一个再训下一个」更短，有时还更拖。所以默认一次只训一路，把算力集中用在当前任务上更划算。</p>
+          </li>
+          <li>
+            <strong>只盯一个品种，更好观察训练情况</strong>
+            <p>曲线、日志、最优公式都只对应这一组数据，涨没涨分一眼能看清。多品种并行时页面和日志会搅在一起，反而不容易判断「这个品种还值不值得继续挖」。</p>
+          </li>
+          <li>
+            <strong>最优分数是什么</strong>
+            <p>到目前为止挖到的<strong>最好那条公式</strong>的得分。它一般只升不降：一旦发现更好的公式，这个数就会抬一截；长时间不动，说明这段时间还没挖到更强的。</p>
+          </li>
+          <li>
+            <strong>验证分数是什么</strong>
+            <p>当前这一步在<strong>验证集</strong>上算出来的平均表现，反映「最近这批公式整体好不好」。它会上下波动很正常；更值得看的是整体有没有慢慢抬高，而不是盯着单次跳动。</p>
+          </li>
+          <li>
+            <strong>为什么验证曲线会一截一截地掉下去再爬起来？</strong>
+            <p>图上的验证分数不是「当前最优那一条」的得分，而是<strong>这一步随机抽出来的一整批公式的平均分</strong>。挖着挖着，模型会越来越爱重复同一类公式（探索变少），系统就会主动「搅一搅」——加大随机、换一批新配方继续搜。刚搅完时，新配方里好坏掺半，平均值会突然掉一截；随后又慢慢学到更好的组合，曲线再往上爬。所以会看到锯齿状起伏。</p>
+            <p>绿色的最优分数只记「历史最好的那一次」，所以不会跟着掉下去，只会阶梯往上抬。锯齿本身多半是在重新探索，不等于训练坏了。</p>
+          </li>
+          <li>
+            <strong>重新训练有机会找出更好的量化因子</strong>
+            <p>「开始训练」会接着上次的检查点继续挖；「重新训练」会清掉检查点，从零换一条随机路径再搜一遍。因为搜索带随机性，有时能挖到比现在更高的分数。</p>
+            <p>已有的最优策略会当作分数下限留着——只有找到更好的才会覆盖，不会一开局就被弱公式冲掉。代价是要再花一整轮算力，适合本轮训完或最优分数长期不动时再用。</p>
+          </li>
+        </ol>
+      </details>
+    </section>
+
+    <section class="panel strategies-panel">
+      <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
+      <span class="hud-corner bl"></span><span class="hud-corner br"></span>
+      <h2>已保存策略</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>品种</th>
+              <th>周期</th>
+              <th>分数</th>
+              <th>公式</th>
+            </tr>
+          </thead>
+          <tbody id="strategiesBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel debug-panel" id="debugPanelSection">
+      <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
+      <span class="hud-corner bl"></span><span class="hud-corner br"></span>
+      <div class="panel-head">
+        <h2>调试 / 报错输出</h2>
+        <span class="hint" id="debugLogPaths">—</span>
+      </div>
+      <pre class="debug-view" id="debugView">暂无报错</pre>
+    </section>
+
+    <section class="panel ai-panel" id="aiPanelSection">
+      <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
+      <span class="hud-corner bl"></span><span class="hud-corner br"></span>
+      <div class="panel-head">
+        <h2>AI 分析当前训练情况</h2>
+        <span class="hint" id="aiProviderHint">DeepSeek · deepseek-v4-flash</span>
+      </div>
+      <div class="ai-form">
+        <div class="ai-row">
+          <label class="ai-field ai-key-field" id="aiKeyField">
+            <span>API Key</span>
+            <input type="password" id="aiApiKeyInput" placeholder="填入 DeepSeek API Key" autocomplete="off" />
+          </label>
+          <button type="button" class="btn btn-primary" id="aiAnalyzeBtn">开始分析</button>
+          <button type="button" class="btn btn-unlimited" id="aiUnlimitedBtn">获取无限分析功能</button>
+        </div>
+        <small class="field-hint" id="aiChannelHint">使用 DeepSeek（deepseek-v4-flash · https://api.deepseek.com），填入你的 API Key 即可。</small>
+      </div>
+      <div class="ai-answer" id="aiAnswerView">点击「开始分析」后，AI 将回答：当前训练情况怎么样，是否值得继续，以及最新因子的含义与原理。</div>
+    </section>
+
+    <div class="modal" id="aiUnlimitedModal" hidden>
+      <div class="modal-backdrop" data-close-unlimited></div>
+      <div class="modal-card" role="dialog" aria-labelledby="aiUnlimitedTitle">
+        <h3 id="aiUnlimitedTitle">获取无限分析次数</h3>
+        <div class="modal-body">
+          获取无限分析次数方法需付费49.9元，付费后你将获得<br>
+          Deepseek V4 Pro/GLM5.1/Kimi2.6等"满血"模型的无限分析方法<br>
+          注意无限分析次数只支持使用这个分析软件<br>
+          如果你愿意付费，请联系QQ：564020069（付费后提供远程协助部署安装服务）<br><br>
+          如果你不愿意付费，你可以用自己的模型api，如果你不知道模型api是什么<br>
+          可以直接跟龙虾说：<br>
+          AlphaMaster这个程序的模型api有什么作用，该怎么填？<br>
+          请教我填上Deepseek官方的模型API接口
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-primary" data-close-unlimited>知道了</button>
+        </div>
+      </div>
+    </div>
+    </div><!-- /page-train -->
+
+    <!-- ══════════════ 步骤二：回测页 ══════════════ -->
+    <div class="page" id="page-backtest">
+      <section class="panel launch-panel">
+        <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
+        <span class="hud-corner bl"></span><span class="hud-corner br"></span>
+        <h2>启动回测</h2>
+        <div class="launch-form launch-form-file">
+          <div class="launch-row launch-row-main">
+            <button type="button" class="btn btn-secondary btn-browse" id="btBrowseStrategyBtn">选择策略</button>
+            <div class="data-file-card" id="btStrategyCard">
+              <div class="data-file-empty">尚未选择策略文件</div>
+            </div>
+            <div class="launch-actions">
+              <button class="btn btn-primary" id="btStartBtn" disabled>开始回测</button>
+              <button class="btn btn-danger" id="btStopBtn" disabled>停止</button>
+            </div>
+          </div>
+          <div class="launch-row bt-cost-row">
+            <label class="bt-cost-field">
+              <span>手续费（单边 %）</span>
+              <input type="number" id="btCommissionInput" min="0" max="5" step="0.01" value="0.02" />
+            </label>
+            <label class="bt-cost-field">
+              <span>滑点（单边 %）</span>
+              <input type="number" id="btSlippageInput" min="0" max="5" step="0.01" value="0.01" />
+            </label>
+            <span class="bt-cost-sum" id="btCostSumHint">合计单边成本 0.03%</span>
+          </div>
+          <small class="field-hint">训练/回测均强制使用本地 Parquet，不连接 MT5。回测优先读策略内 <code>data_file</code>；没有则回退训练页同品种文件。单边手续费/滑点开平仓各扣一次。</small>
+        </div>
+      </section>
+
+      <!-- 回测绩效概览 -->
+      <section class="panel bt-summary-panel">
+        <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
+        <span class="hud-corner bl"></span><span class="hud-corner br"></span>
+        <div class="panel-head">
+          <h2>回测绩效</h2>
+          <span class="hint" id="btPortfolioHint">尚未运行回测</span>
+        </div>
+        <div class="metric-grid" id="btPortfolioGrid">
+          <div class="metric-empty">运行回测后显示收益、夏普、盈亏比等指标</div>
+        </div>
+      </section>
+
+      <div class="split">
+        <!-- 品种绩效表 -->
+        <section class="panel bt-table-panel">
+          <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
+          <span class="hud-corner bl"></span><span class="hud-corner br"></span>
+          <div class="panel-head">
+            <h2>绩效明细</h2>
+            <span class="hint" id="btTableHint">—</span>
+          </div>
+          <div class="table-wrap">
+            <table class="bt-table">
+              <thead>
+                <tr>
+                  <th>品种</th>
+                  <th>收益</th>
+                  <th>Sharpe</th>
+                  <th>Sortino</th>
+                  <th>盈亏比</th>
+                  <th>交易数</th>
+                  <th>胜率</th>
+                </tr>
+              </thead>
+              <tbody id="btTableBody">
+                <tr class="empty-row"><td colspan="7">暂无回测结果</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- 回测日志 -->
+        <section class="panel log-panel">
+          <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
+          <span class="hud-corner bl"></span><span class="hud-corner br"></span>
+          <div class="panel-head">
+            <h2>回测日志</h2>
+            <span class="hint" id="btLogHint">—</span>
+          </div>
+          <div class="bt-phase" id="btPhaseBar">
+            <div class="bt-phase-track"><div class="bt-phase-fill" id="btPhaseFill"></div></div>
+            <span class="bt-phase-label" id="btPhaseLabel">待机</span>
+          </div>
+          <pre class="log-view" id="btLogView">等待任务…</pre>
+        </section>
+      </div>
+
+      <!-- 资金曲线（交互式 HTML 图表） -->
+      <section class="panel bt-charts-panel">
+        <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
+        <span class="hud-corner bl"></span><span class="hud-corner br"></span>
+        <div class="panel-head">
+          <h2>资金曲线</h2>
+          <span class="hint" id="btChartsHint">回测完成后展示资金曲线</span>
+        </div>
+
+        <div class="equity-live" id="btEquityLive" hidden>
+          <div class="equity-stats" id="btEquityStats"></div>
+          <div class="equity-chart-block">
+            <div class="equity-axis-label">累计对数收益</div>
+            <div class="equity-chart-wrap">
+              <canvas id="btEquityChart"></canvas>
+            </div>
+          </div>
+          <div class="equity-chart-block roll">
+            <div class="equity-axis-label" id="btRollingLabel">滚动夏普 · Rolling Sharpe</div>
+            <div class="equity-chart-wrap roll">
+              <canvas id="btRollingChart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="metric-empty" id="btEquityEmpty">回测完成后展示资金曲线</div>
+
+        <details class="chart-metrics-help bt-howto" open>
+          <summary>回测是怎么算的？（一看就懂）</summary>
+          <ol class="bt-howto-list">
+            <li>
+              <strong>先拿历史行情“假装交易”</strong>
+              <p>回测不会真的下单。它把过去很多天的价格拿出来，按策略规则一步步走一遍，看看如果当时真做了，钱会变多还是变少。</p>
+            </li>
+            <li>
+              <strong>因子先打一个“信号分”</strong>
+              <p>策略公式会给每一根 K 线打分：正分偏向看涨，负分偏向看跌，靠近 0 就先别乱动。</p>
+              <p>分数的绝对值越大，信号就越明确。比如 +3 比 +0.2 更坚决地看涨，-3 比 -0.2 更坚决地看跌。</p>
+            </li>
+            <li>
+              <strong>信号分越大，仓位就越大</strong>
+              <p>仓位不是只有“全仓 / 空仓”两档，而是用 <code>tanh(信号分)</code> 压到大约 -1 到 +1 之间。</p>
+              <ul>
+                <li>正分越大 → 做多越多（最多接近满仓 +1）</li>
+                <li>负分越小 → 做空越多（最多接近满仓 -1）</li>
+                <li>分数很弱 → 仓位接近 0（几乎不持仓）</li>
+              </ul>
+              <p>可以把它想成：信心越大，下注越多；但再大也不会超过“一整份仓位”。</p>
+            </li>
+            <li>
+              <strong>赚亏怎么算</strong>
+              <p>这一步大概赚多少 ≈ 仓位 × 价格涨跌。仓位大，涨了赚得多，跌了也亏得多。换仓时还会扣掉你设的手续费和滑点。</p>
+            </li>
+            <li>
+              <strong>上面那些图在说什么</strong>
+              <ul>
+                <li>资金曲线：把每一步赚亏累加起来，看账户是往上爬还是往下掉。</li>
+                <li>滚动夏普：看最近一段时间“赚得稳不稳”，越高通常越好。</li>
+              </ul>
+            </li>
+          </ol>
+        </details>
+      </section>
+    </div><!-- /page-backtest -->
+
+    <!-- ══════════════ 步骤三：实时分析页 ══════════════ -->
+    <div class="page" id="page-realtime">
+      <section class="panel launch-panel">
+        <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
+        <span class="hud-corner bl"></span><span class="hud-corner br"></span>
+        <h2>添加监控</h2>
+        <div class="rt-form">
+          <label class="rt-field">
+            <span>数据源</span>
+            <select id="rtSourceSelect"></select>
+          </label>
+          <label class="rt-field">
+            <span>品种</span>
+            <input type="text" id="rtSymbolInput" list="rtSymbolPresets" placeholder="如 XAUUSD / 600519" autocomplete="off" />
+            <datalist id="rtSymbolPresets"></datalist>
+          </label>
+          <label class="rt-field">
+            <span>周期</span>
+            <select id="rtTimeframeSelect"></select>
+          </label>
+          <label class="rt-field rt-field-wide">
+            <span>因子来源</span>
+            <select id="rtStrategySelect"></select>
+          </label>
+          <div class="rt-actions">
+            <button type="button" class="btn btn-secondary" id="rtBrowseStrategyBtn" title="导入本地策略 JSON">导入策略</button>
+            <button type="button" class="btn btn-primary" id="rtAddBtn">加入监控</button>
+          </div>
+        </div>
+        <div class="rt-form-foot">
+          <span class="rt-source-hint" id="rtSourceHint">—</span>
+          <span class="rt-thr-hint" id="rtThresholdHint">无信号阈值 |tanh(因子)| &lt; 0.05</span>
+        </div>
+        <small class="field-hint" id="rtStrategyPicked">因子来源：从已保存策略下拉选择，或「导入策略」选本地 JSON。信号取最后已收盘 bar。</small>
+      </section>
+
+      <section class="panel rt-radar-panel">
+        <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
+        <span class="hud-corner bl"></span><span class="hud-corner br"></span>
+        <div class="panel-head">
+          <h2>信号雷达</h2>
+          <div class="rt-head-right">
+            <span class="hint" id="rtStatusHint">未启动</span>
+          </div>
+        </div>
+        <div class="rt-grid" id="rtGrid">
+          <div class="metric-empty">尚无监控项。添加「数据源 + 品种 + 周期 + 因子」后开始实时分析。</div>
+        </div>
+
+        <details class="chart-metrics-help bt-howto" open>
+          <summary>怎么看信号？还有哪些要注意</summary>
+          <ol class="bt-howto-list">
+            <li>
+              <strong>这张卡怎么看？（一眼看懂）</strong>
+              <ul>
+                <li>先看中间下面那行方向：<strong>预期上涨</strong>（偏多）或<strong>预期下跌</strong>（偏空）。颜色也会跟着变——绿偏多、红偏空。</li>
+                <li>再看大字把握：策略对这个方向有多坚决——一点把握 → 把握不大 → 一半把握 → 比较有把握 → 很有把握。半环亮得越满，把握越大。</li>
+                <li>若显示「没把握 / 先观望」，表示信号太弱，先别当买卖依据。</li>
+                <li>「因子」是内部算出来的分数，负的偏空、正的偏多，一般不用盯着它；看方向 + 把握就够了。</li>
+                <li>这不是「猜对的概率」，只是策略此刻有多坚决。</li>
+              </ul>
+            </li>
+            <li>
+              <strong>只在「当前周期」那根 K 线收盘后才重新判断</strong>
+              <p>例如选的是 1 小时周期，就等这一小时走完、K 线正式收盘，才会用最新已收盘的数据重算方向和把握；盘中正在走的那根（未收盘）不会拿来改信号。</p>
+            </li>
+            <li>
+              <strong>为什么这样设计</strong>
+              <p>训练和回测用的都是「已经收盘」的完整 K 线。若盘中用还在变动的价格去算，同一根线里信号会来回跳，也和回测看到的历史不一致，容易误判、频繁改仓。</p>
+              <p>等收盘再用完整 OHLC，信号更稳，也和策略当初学到的数据口径一致。</p>
+            </li>
+            <li>
+              <strong>相同品种、不同周期，能不能套同一个策略？</strong>
+              <p>不建议。策略是按<strong>训练时的那个周期</strong>学出来的；公式里的「10 根、20 根」指的是该周期的 K 线根数，不是固定的钟表时间。</p>
+              <p>例如在 1 小时上训练时，「10 根」大约看过去 10 小时；若硬套到日线，「10 根」就变成过去 10 天——价格形态、噪声幅度、趋势节奏全变了，信号含义对不上，回测成绩也推不到新周期上。</p>
+              <p>同品种换周期应重新训练（或至少用该周期单独回测验证）；实时监控时，周期尽量与策略文件里记录的周期一致。</p>
+            </li>
+            <li>
+              <strong>卡片上的「距离下次判断」在倒计什么</strong>
+              <p>倒计时指向下一次收盘、重新判断信号的时刻。到点后会短暂显示「即将重新判断…」，收到新 bar 后再刷新，并开始下一轮倒计时。</p>
+            </li>
+          </ol>
+        </details>
+      </section>
+
+      <section class="panel rt-feishu-panel">
+        <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
+        <span class="hud-corner bl"></span><span class="hud-corner br"></span>
+        <h2>飞书转折提醒</h2>
+        <p class="rt-feishu-desc">
+          仅在信号方向发生变化时推送文字提醒（例如看涨 → 不确定 / 看跌）。
+          在飞书群添加自定义机器人后，把 Webhook 地址填到下面。
+        </p>
+        <div class="rt-feishu-form">
+          <label class="rt-feishu-enable">
+            <input type="checkbox" id="rtFeishuEnabled" />
+            <span>启用飞书提醒</span>
+          </label>
+          <label class="rt-field rt-field-wide">
+            <span>Webhook URL</span>
+            <input type="text" id="rtFeishuWebhook" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/…" autocomplete="off" />
+          </label>
+          <label class="rt-field rt-field-wide">
+            <span>签名密钥（可选）</span>
+            <input type="password" id="rtFeishuSecret" placeholder="机器人开启签名校验时填写，否则留空" autocomplete="off" />
+          </label>
+          <div class="rt-actions rt-feishu-actions">
+            <button type="button" class="btn btn-secondary" id="rtFeishuTestBtn">发送测试</button>
+            <button type="button" class="btn btn-primary" id="rtFeishuSaveBtn">保存</button>
+            <button type="button" class="btn btn-feishu-help" id="rtFeishuHelpBtn">怎么使用飞书功能</button>
+          </div>
+        </div>
+        <small class="field-hint" id="rtFeishuHint">保存后，监控项方向转折时会自动推送到飞书群。</small>
+      </section>
+    </div><!-- /page-realtime -->
+
+    <div class="modal" id="rtFeishuHelpModal" hidden>
+      <div class="modal-backdrop" data-close-feishu-help></div>
+      <div class="modal-card modal-card-feishu-help" role="dialog" aria-labelledby="rtFeishuHelpTitle">
+        <h3 id="rtFeishuHelpTitle">怎么使用飞书功能</h3>
+        <div class="modal-body modal-body-feishu-help">
+          去问龙虾AlphaMaster这个项目怎么使用飞书功能，一步一步教我<br>
+          还是搞不定的话<br>
+          可以联系阿尔法本人QQ：564020069<br><br>
+          赞助49.9元可以帮你远程协助完成飞书设置<br><br>
+          如果之前已经支付过49.9元了，这次只需要赞助30元即可
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-primary" data-close-feishu-help>知道了</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="tvBlockedModal" hidden>
+      <div class="modal-backdrop" data-close-tv-blocked></div>
+      <div class="modal-card" role="dialog" aria-labelledby="tvBlockedTitle">
+        <h3 id="tvBlockedTitle">无法使用 TradingView</h3>
+        <pre class="modal-body modal-tv-blocked-body" id="tvBlockedBody"></pre>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" id="tvBlockedMt5Btn">切换回 MT5</button>
+          <button type="button" class="btn btn-primary" id="tvBlockedCloudBtn">使用云服务器</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="errorModal" hidden>
+      <div class="modal-backdrop" data-close-error></div>
+      <div class="modal-card modal-card-error" role="dialog" aria-labelledby="errorModalTitle">
+        <h3 id="errorModalTitle">出错了</h3>
+        <pre class="modal-error-detail" id="errorModalDetail"></pre>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" id="errorModalCopyBtn">复制详情</button>
+          <button type="button" class="btn btn-primary" data-close-error>知道了</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/bg.js?v=1"></script>
+  <script src="/static/app.js?v=60"></script>
+</body>
+</html>

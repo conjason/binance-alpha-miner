@@ -1,0 +1,46 @@
+# binance-alpha-miner - 依赖清单（在一个 AGPL-3.0 开源因子挖掘项目基础上二次开发）
+# Python 3.10+ （建议 3.11 / 3.13）
+#
+# 安装（中文 Windows 建议用 python -m pip）：
+#   python -m pip install -r requirements.txt
+#
+# 安全改动：上游 requirements 里的 `cryptography`（注释写着 "WorkBuddy token
+# decrypt on Windows"）仅用于从本机腾讯 CodeBuddy/WorkBuddy 桌面端解密登录 token，
+# 本 fork 已删除该代码路径，故此依赖一并移除。
+
+# ===== 深度学习 / 数值 =====
+torch>=2.0.0
+numpy>=1.24.0
+scipy>=1.10.0
+
+# ===== 数据处理 =====
+pandas>=2.0.0
+pyarrow>=14.0.0
+
+# ===== 图表 / 可视化 =====
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# ===== HTTP（回测/可选数据源用）=====
+requests>=2.31.0
+
+# ===== Web UI =====
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9
+pydantic>=2.0.0
+
+# ===== 环境 / 日志 =====
+python-dotenv>=1.0.0
+loguru>=0.7.0
+tqdm>=4.66.0
+
+# ===== 测试 =====
+pytest>=7.0.0
+hypothesis>=6.0.0
+
+# ── 以下为可选依赖，本地 Parquet 训练/回测不需要，见 requirements-optional.txt ──
+#   MetaTrader5   （MT5 实时/实盘数据源，仅外汇/指数券商用）
+#   tushare / pytdx（A 股数据源）
+#   tvdatafeed    （TradingView 数据源）
+#   playwright    （仅用于 README 截图脚本）

@@ -1,0 +1,15 @@
+# 可选依赖：本地 Parquet 训练 / 回测都不需要，仅当你要用对应的实时/实盘数据源时才装。
+# 用法：python -m pip install -r requirements-optional.txt
+
+# MT5 实时/实盘数据源（外汇/指数券商）
+MetaTrader5>=5.0.45
+
+# A 股数据源
+tushare>=1.2.89
+pytdx>=1.72
+
+# TradingView 数据源（需本机有 git）
+tvdatafeed @ git+https://github.com/rongardF/tvdatafeed.git
+
+# 仅 README 截图脚本用
+playwright>=1.40.0
