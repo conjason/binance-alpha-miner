@@ -42,6 +42,11 @@ class TestNormalCase:
         folds = _build_walk_forward_folds(T=500, n_folds=5, gap=20)
         assert len(folds) == 4
 
+    def test_requested_gap_is_not_silently_zeroed(self):
+        """数据充足时必须真正保留请求的 20-bar 隔离带。"""
+        folds = _build_walk_forward_folds(T=500, n_folds=5, gap=20)
+        assert {fold["gap"] for fold in folds} == {20}
+
     def test_train_start_always_zero(self):
         """所有折的 train_start 都为 0（扩展训练窗口）。"""
         folds = _build_walk_forward_folds(T=500, n_folds=5, gap=20)

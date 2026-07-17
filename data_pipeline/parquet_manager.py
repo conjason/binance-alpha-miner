@@ -79,14 +79,39 @@ def normalize_timeframe_token(token: str) -> str | None:
     return None
 
 
+def _infer_context_timeframe(path: str | Path) -> str | None:
+    """无显式周期、文件名也无 ``_周期`` 后缀时，按上下文推断周期。
+
+    顺序：
+      1. 父目录名里的周期 token（如 ``...\\币安币种数据_1m`` → ``1m``）；
+      2. ``Config.DEFAULT_TIMEFRAME``（由环境变量 ``KLINE_DEFAULT_TIMEFRAME`` 覆盖，默认 ``5m``）。
+
+    这样币安式命名 ``BTCUSDT.parquet`` 在 Web / CLI 都能自动定周期，无需改名。
+    """
+    parent = Path(path).parent.name
+    if "_" in parent:
+        tok = normalize_timeframe_token(parent.rsplit("_", 1)[1])
+        if tok:
+            return tok
+    try:
+        from config import Config
+
+        d = str(getattr(Config, "DEFAULT_TIMEFRAME", "") or "").strip()
+        if d:
+            return normalize_timeframe_token(d)
+    except Exception:
+        pass
+    return None
+
+
 def parse_parquet_filename(
     path: str | Path, default_timeframe: str | None = None
 ) -> tuple[str, str]:
     """解析 ``{品种}_{周期}.parquet``；也支持无周期后缀的 ``{品种}.parquet``。
 
-    - 有合法周期后缀（``BTCUSDT_5m.parquet`` / ``AAPL_H1.parquet``）→ 用后缀。
-    - 无后缀（``BTCUSDT.parquet``）或后缀非法 → 用 ``default_timeframe``（如 "5m"）。
-    - 两者都没有 → 抛错，提示补 --timeframe。
+    周期推断优先级：
+      显式 ``default_timeframe`` > 文件名 ``_周期`` 后缀 > 父目录名周期 token
+      （如 ``..._1m``）> ``Config.DEFAULT_TIMEFRAME``（环境变量 ``KLINE_DEFAULT_TIMEFRAME``，默认 5m）。
     """
     name = Path(path).name
     if Path(path).suffix.lower() != ".parquet":
@@ -101,19 +126,22 @@ def parse_parquet_filename(
         timeframe = normalize_timeframe_token(tf_raw)
         if symbol and timeframe is not None:
             return symbol, timeframe
-        # 后缀不是合法周期（例如 1000BONK 这种），退回把整个 stem 当品种名
-        if default_tf is not None:
-            return stem.strip(), default_tf
+        # 后缀不是合法周期（例如 1000BONK / SOL_USDT 这种），退回把整个 stem 当品种名
+        tf = default_tf or _infer_context_timeframe(path)
+        if tf:
+            return stem.strip(), tf
         raise ValueError(
-            f"文件名 {name} 的 '_' 后缀不是合法周期，且未提供 --timeframe。"
-            f"请指定周期，如 --timeframe 5m。"
+            f"文件名 {name} 的 '_' 后缀不是合法周期，且无法推断周期。"
+            f"请指定 --timeframe（如 5m），或设置 KLINE_DEFAULT_TIMEFRAME。"
         )
 
-    # 无下划线：整个 stem 是品种名，周期必须由外部给
-    if default_tf is not None:
-        return stem.strip(), default_tf
+    # 无下划线：整个 stem 是品种名，周期由 显式参数 / 目录名 / 默认值 推断
+    tf = default_tf or _infer_context_timeframe(path)
+    if tf:
+        return stem.strip(), tf
     raise ValueError(
-        f"文件名 {name} 无周期后缀，请提供 --timeframe（如 5m/1m/H1）。"
+        f"文件名 {name} 无周期后缀且无法推断周期，请提供 --timeframe（如 5m/1m/H1）"
+        f"或设置环境变量 KLINE_DEFAULT_TIMEFRAME。"
     )
 
 
@@ -201,24 +229,22 @@ class ParquetDataManager:
         file_path: str | Path,
         timeframe: str | None = None,
         max_bars: int | None = None,
+        end_offset: int = 0,
     ) -> None:
         self.file_path = Path(file_path)
         self.symbol, self.timeframe = parse_parquet_filename(
             self.file_path, default_timeframe=timeframe
         )
         self.max_bars = int(max_bars) if max_bars else None
+        self.end_offset = int(end_offset)
+        if self.end_offset < 0:
+            raise ValueError("end_offset 不能为负数")
         self._raw_dict: dict[str, torch.Tensor] | None = None
         self._target_ret: torch.Tensor | None = None
         self._extra_loaded: list[str] = []
 
     def load(self) -> None:
         df = pd.read_parquet(self.file_path)
-        # 只保留最近 max_bars 根（5m 全量 40 万+ 根，训练每步逐条跑滚动算子会很慢，
-        # 大周期/短验证时用它截断到近端窗口）。截断在排序前按行数近似，排序后仍是近端。
-        if self.max_bars and len(df) > self.max_bars:
-            df = df.iloc[-self.max_bars:].copy()
-        if len(df) < Config.MIN_BARS:
-            raise ValueError(f"数据不足: {len(df)} bars（至少需要 {Config.MIN_BARS}）")
 
         time_col = _pick_column(df, _TIME_COL_ALIASES)
         if time_col is None:
@@ -236,6 +262,36 @@ class ParquetDataManager:
         work = work.sort_values("__t")
         work = work[~work["__t"].duplicated(keep="last")]
         work = work.reset_index(drop=True)
+
+        # 丢弃 OHLC 缺失的坏 K 线（数据缺口/停牌，全 OHLC 为 NaN）。
+        # 否则 target_ret = log(open 比值) 会变 NaN，进而 reward/SVD 全线崩（非有限值）。
+        n_before = len(work)
+        work = work.dropna(subset=["open", "high", "low", "close"]).reset_index(drop=True)
+        n_dropped = n_before - len(work)
+        if n_dropped:
+            logger.info(
+                f"[数据] {self.file_path.name} 丢弃 {n_dropped} 根 OHLC 缺失的坏K线"
+                f"（占 {n_dropped / n_before * 100:.3f}%）"
+            )
+        if len(work) < Config.MIN_BARS:
+            raise ValueError(
+                f"清洗后数据不足: {len(work)} bars（至少需要 {Config.MIN_BARS}）"
+            )
+
+        # 先清洗和排序，再做严格的时间窗切片。end_offset 用于封存最近 N 根真样本外；
+        # max_bars 随后从训练端点向前取最近 N 根，保证训练窗与 holdout 完全不重叠。
+        if self.end_offset:
+            if len(work) - self.end_offset < Config.MIN_BARS:
+                raise ValueError(
+                    f"封存最近 {self.end_offset} 根后数据不足: "
+                    f"{max(0, len(work) - self.end_offset)} bars"
+                )
+            work = work.iloc[:-self.end_offset].copy()
+        if self.max_bars and len(work) > self.max_bars:
+            work = work.iloc[-self.max_bars:].copy()
+        work = work.reset_index(drop=True)
+        if len(work) < Config.MIN_BARS:
+            raise ValueError(f"切片后数据不足: {len(work)} bars（至少需要 {Config.MIN_BARS}）")
 
         # ── 核心 OHLCV ──
         ohlc = {f: work[f].astype("float64").to_numpy() for f in ("open", "high", "low", "close")}
@@ -269,6 +325,7 @@ class ParquetDataManager:
             f"[数据] 已加载 {self.symbol} {self.timeframe}，"
             f"共 {raw['open'].shape[1]} 根K线，另类列: {self._extra_loaded or '无'}，"
             f"文件 {self.file_path.name}"
+            + (f"，封存末尾 {self.end_offset} 根" if self.end_offset else "")
         )
 
     @property

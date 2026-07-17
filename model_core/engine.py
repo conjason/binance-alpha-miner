@@ -77,15 +77,22 @@ def _fallback_data_file_for_symbol(symbol: str) -> tuple[str | None, str | None]
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _build_walk_forward_folds(T: int, n_folds: int = 5, gap: int = 20) -> list[dict]:
-    fold_size = T // n_folds
+    if n_folds < 2 or T < n_folds * 2:
+        return [{"train_start": 0, "train_end": T, "val_start": 0, "val_end": T, "gap": 0}]
+
+    # 为每个训练/验证边界真正预留 gap。旧实现先用 T//n_folds 占满全长，
+    # 随后发现“fold + gap > T”便把 gap 几乎总是压成 0，名义上的隔离没有生效。
+    gap = max(0, int(gap))
+    max_gap = max(0, (T - 2 * n_folds) // (n_folds - 1))
+    gap = min(gap, max_gap)
+    fold_size = (T - gap * (n_folds - 1)) // n_folds
     if fold_size < 2:
         return [{"train_start": 0, "train_end": T, "val_start": 0, "val_end": T, "gap": 0}]
-    total_required = fold_size * n_folds + gap * (n_folds - 1)
-    if total_required > T:
-        gap = max(0, (T - fold_size * n_folds) // n_folds)
+
     folds = []
     for k in range(1, n_folds):
-        train_end = fold_size * k
+        # 扩展训练窗会吸收更早的验证段，但始终与当前验证段隔开 gap。
+        train_end = fold_size * k + gap * (k - 1)
         val_start = train_end + gap
         val_end   = val_start + fold_size if k < n_folds - 1 else T
         if val_start >= T or val_end > T:
@@ -117,7 +124,8 @@ def _repetition_penalty(formula: list[int]) -> float:
 
 class ConstrainedSampler:
     def __init__(self, vocab_size: int, feat_offset: int, arity_map: dict[int, int],
-                 positive_only_ids: set[int] | None = None):
+                 positive_only_ids: set[int] | None = None,
+                 blocked_token_ids: set[int] | None = None):
         self.vocab_size  = vocab_size
         self.feat_offset = feat_offset
         self.arity_map   = arity_map
@@ -130,6 +138,7 @@ class ConstrainedSampler:
                 self.delta[tid] = 1 - a
         # 恒正算子 token id 集合（用于算子链约束）
         self.positive_only_ids = positive_only_ids or set()
+        self.blocked_token_ids = blocked_token_ids or set()
         # 构建感染传播/恢复算子 id 集合
         from .vm import INFECTED_PROPAGATING_OPS, SIGN_RESTORE_OPS
         from .ops import OPS_CONFIG as _ops
@@ -149,6 +158,9 @@ class ConstrainedSampler:
         remaining = total_steps - step_idx
         mask = torch.ones(self.vocab_size, dtype=torch.bool, device=device)
         for tid in range(self.vocab_size):
+            if tid in self.blocked_token_ids:
+                mask[tid] = False
+                continue
             d         = self.delta[tid]
             new_depth = stack_depth + d
             if new_depth < 1:
@@ -169,9 +181,12 @@ class ConstrainedSampler:
                     mask[tid] = False
         if not mask.any():
             for tid in range(self.vocab_size):
-                if stack_depth + self.delta[tid] >= 1:
+                if tid not in self.blocked_token_ids and stack_depth + self.delta[tid] >= 1:
                     mask[tid] = True
         return mask
+
+    def formula_allowed(self, tokens: list[int] | None) -> bool:
+        return bool(tokens) and not any(int(t) in self.blocked_token_ids for t in tokens)
 
     def apply_mask_to_logits(self, logits: torch.Tensor, stack_depths: list[int],
                               step_idx: int, total_steps: int,
@@ -233,10 +248,28 @@ class AlphaEngine:
         self.bt = MT5Backtest()
 
         from .vocab import FORMULA_VOCAB as _v
+        blocked_token_ids: set[int] = set()
+        blocked_token_names: list[str] = []
+        if target_symbol is not None:
+            # 单品种训练中，截面特征会退化为 0，截面算子会退化为 0/0.5。
+            # 把它们从采样空间屏蔽，避免产生看似高分但没有单品种经济含义的公式。
+            from .features import FEATURE_REGISTRY
+
+            for tid, spec in enumerate(FEATURE_REGISTRY.feature_specs):
+                if spec.category == "cross_sectional":
+                    blocked_token_ids.add(tid)
+                    blocked_token_names.append(spec.name)
+            for op_idx, name in enumerate(_v.operator_names):
+                if name in {"CS_RANK", "CS_SCALE", "CS_NEUTRALIZE"}:
+                    blocked_token_ids.add(_v.operator_offset + op_idx)
+                    blocked_token_names.append(name)
+
+        self.blocked_token_names = tuple(blocked_token_names)
         self.sampler = ConstrainedSampler(
             vocab_size=_v.size, feat_offset=_v.operator_offset,
             arity_map=self.vm.arity_map,
-            positive_only_ids=self.vm.positive_only_ids
+            positive_only_ids=self.vm.positive_only_ids,
+            blocked_token_ids=blocked_token_ids,
         )
 
         self.best_score   = -float('inf')
@@ -451,6 +484,8 @@ class AlphaEngine:
                   f"正向×{ModelConfig.IC_GATE_MULT}  负向×{ModelConfig.IC_NEG_MULT}")
             print(f"   最大重启: {ModelConfig.MAX_RESTARTS}  "
                   f"噪声={ModelConfig.RESTART_NOISE}")
+            if self.blocked_token_names:
+                print("   单品种屏蔽截面 token: " + ", ".join(self.blocked_token_names))
 
         T     = self.data_manager.target_ret.shape[1]
         folds = _build_walk_forward_folds(T, self.n_folds,
@@ -1027,7 +1062,10 @@ class AlphaEngine:
                 "formula_decoded": self._decode_formula(self.best_formula),
             }
             # 保留训练数据路径等元数据，避免 live 保存把 data_file 冲掉
-            for key in ("timeframe", "data_file", "mode", "train_steps"):
+            for key in (
+                "timeframe", "data_file", "mode", "train_steps",
+                "training_config", "train_window",
+            ):
                 val = getattr(self, key, None)
                 if val is None:
                     val = existing.get(key)
@@ -1107,6 +1145,13 @@ class AlphaEngine:
             self.training_history[k] = v
 
         # 清理 elite pool 中的重复条目（保留各公式的最高分版本）
+        if not self.sampler.formula_allowed(self.best_formula):
+            self.best_formula = None
+            self.best_score = -float("inf")
+            self._best_snapshot = None
+        self._elite_pool = [
+            row for row in self._elite_pool if self.sampler.formula_allowed(row[2])
+        ]
         self._elite_pool = self._dedup_elite_pool(self._elite_pool)
 
         completed = ckpt.get("step", 0)

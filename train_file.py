@@ -41,12 +41,14 @@ def train_from_file(data_file: str, *, from_scratch: bool = False) -> AlphaEngin
     print(f"  数据: 强制离线 Parquet（不连接 MT5）")
     print(f"  文件: {Path(data_file).resolve()}")
     print(f"  训练步数: {ModelConfig.TRAIN_STEPS}")
-    print(f"  K线数: {info['bars']}")
+    print(f"  K线数: {info['bars']}" + (
+        f"，仅取最近 {Config.TRAIN_MAX_BARS} 根(TRAIN_MAX_BARS)" if Config.TRAIN_MAX_BARS else "（全量）"))
     print(f"  模式: {'重新训练（从头）' if from_scratch else '自动续训'}")
     print(f"{'='*60}")
 
     try:
-        mgr = ParquetDataManager(data_file)
+        # Web/CLI 共用：全量 5m(40 万+根)训练极慢，可用环境变量 TRAIN_MAX_BARS 截断到近端窗口
+        mgr = ParquetDataManager(data_file, max_bars=Config.TRAIN_MAX_BARS)
         mgr.load()
         T = mgr.raw_dict["open"].shape[1]
         print(f"  数据加载成功，共 {T} 根K线")

@@ -115,3 +115,6 @@ secrets/
 *.key
 credentials*.json
 local_settings*.json
+
+# 本地缓存/训练备份（不上传）
+/cache/

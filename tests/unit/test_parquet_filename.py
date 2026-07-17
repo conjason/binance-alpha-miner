@@ -33,6 +33,29 @@ def test_normalize_timeframe_token():
     assert normalize_timeframe_token("nope") is None
 
 
-def test_parse_rejects_unknown_tf():
-    with pytest.raises(ValueError, match="周期"):
-        parse_parquet_filename("002008_xyz.parquet")
+# ── 无周期后缀（币安式 BTCUSDT.parquet）的周期推断 ──────────────────────────
+
+def test_suffixless_uses_default_timeframe():
+    """无后缀、无目录线索时，回退到 Config.DEFAULT_TIMEFRAME（默认 5m → M5）。"""
+    assert parse_parquet_filename("BTCUSDT.parquet") == ("BTCUSDT", "M5")
+    assert parse_parquet_filename("1000BONKUSDT.parquet") == ("1000BONKUSDT", "M5")
+
+
+def test_suffixless_infers_from_parent_dir():
+    """父目录名含周期 token 时优先用之（如币安 1m 目录 ..._1m）。"""
+    assert parse_parquet_filename("data_1m/BTCUSDT.parquet") == ("BTCUSDT", "M1")
+    assert parse_parquet_filename("klines_1h/ETHUSDT.parquet") == ("ETHUSDT", "H1")
+
+
+def test_explicit_timeframe_wins_over_inference():
+    assert parse_parquet_filename("data_1m/BTCUSDT.parquet", "5m") == ("BTCUSDT", "M5")
+
+
+def test_env_default_timeframe_override(monkeypatch):
+    monkeypatch.setattr("config.Config.DEFAULT_TIMEFRAME", "15m")
+    assert parse_parquet_filename("ADAUSDT.parquet") == ("ADAUSDT", "M15")
+
+
+def test_unknown_suffix_folds_into_symbol_with_default_tf():
+    """后缀非法时不再报错，整段当品种名 + 默认周期。"""
+    assert parse_parquet_filename("002008_xyz.parquet") == ("002008_xyz", "M5")

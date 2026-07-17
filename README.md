@@ -35,8 +35,17 @@ python -m pip install -r requirements.txt
 |---|---|
 | **时间列** | 自动识别 `ts / time / timestamp / open_time / datetime`，毫秒/秒自动归一 |
 | **必需列** | `open / high / low / close`（成交量列 `volume/tick_volume` 缺失则置 0） |
-| **文件名** | 支持无周期后缀的 `BTCUSDT.parquet`，用 `--timeframe 5m` 指定周期 |
+| **文件名** | 支持无周期后缀的 `BTCUSDT.parquet`（**无需改名**），周期自动推断（见下） |
+| **坏 K 线** | 自动丢弃 OHLC 缺失的行（数据缺口/停牌），避免收益率变 NaN 拖垮训练 |
 | **另类列** | 下列列存在即自动读入并生成对应因子；缺失则对应因子恒 0（不报错、不影响老数据） |
+
+**周期自动推断（Web 与 CLI 通用，无需重命名你的数据）**，优先级从高到低：
+1. 显式 `--timeframe 5m`（仅 CLI）；
+2. 文件名 `{品种}_{周期}.parquet` 后缀（如 `BTCUSDT_5m.parquet`）；
+3. 父目录名里的周期 token（如 `D:\币安币种数据_1m\BTCUSDT.parquet` → 1m）；
+4. `Config.DEFAULT_TIMEFRAME`（环境变量 `KLINE_DEFAULT_TIMEFRAME`，默认 `5m`）。
+
+> 所以 `D:\币安币种数据\BTCUSDT.parquet` 自动当 5m、`D:\币安币种数据_1m\BTCUSDT.parquet` 自动当 1m，**主数据一个字节都不用改**。
 
 自动识别的另类数据列：
 `quote_vol, oi, oi_value, topls_pos, topls_acc, global_acc, taker_bs, funding_rate,

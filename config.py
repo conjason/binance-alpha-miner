@@ -121,6 +121,16 @@ class Config:
     DATA_REFRESH_INTERVAL = 300    # 秒，实盘数据刷新间隔
     KLINE_CACHE_DIR       = os.getenv("KLINE_CACHE_DIR", r"D:\K线数据")  # 本地 K 线缓存目录
 
+    # 无周期后缀的 Parquet（如币安 BTCUSDT.parquet）默认周期。
+    # 周期推断优先级：显式 --timeframe > 文件名 {品种}_{周期} 后缀 >
+    #   父目录名里的周期 token（如 ...\币安币种数据_1m → 1m）> 本默认值（可用环境变量覆盖）。
+    DEFAULT_TIMEFRAME     = os.getenv("KLINE_DEFAULT_TIMEFRAME", "5m")
+
+    # Web/CLI(train_file.py) 训练时只取最近 N 根 K 线；0/空=全量。
+    # 币安 5m 全量 40 万+ 根，逐步滚动算子极慢，Web 训练建议设为 6 万~12 万。
+    # 命令行 train_binance.py 用 --max-bars 独立控制，不受此值影响。
+    TRAIN_MAX_BARS        = int(os.getenv("TRAIN_MAX_BARS", "0")) or None
+
     # ── 模型参数（仅供参考，训练实际使用 model_core.config.ModelConfig）────
     # 训练参数的权威来源是 model_core/config.py，这里的值不生效
     INPUT_DIM       = 20           # 特征数（与 MT5FeatureEngineer.INPUT_DIM 一致）
