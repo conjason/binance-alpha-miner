@@ -15,6 +15,34 @@ from typing import Any
 
 from web.settings import load_settings
 
+# 安全（防 SSRF）：只允许向飞书/Lark 官方自定义机器人 webhook 域名 POST，
+# 且必须 https。杜绝把用户填的 webhook_url 变成服务端任意请求（打内网/本机服务）。
+_FEISHU_WEBHOOK_HOSTS = (
+    "open.feishu.cn",
+    "www.feishu.cn",
+    "open.larksuite.com",
+    "www.larksuite.com",
+)
+
+
+def _validate_feishu_url(url: str) -> str | None:
+    """返回错误信息（None 表示通过）。"""
+    from urllib.parse import urlparse
+
+    try:
+        p = urlparse(url)
+    except Exception:
+        return "Webhook URL 解析失败"
+    if p.scheme != "https":
+        return "Webhook URL 必须是 https"
+    host = (p.hostname or "").lower()
+    if host not in _FEISHU_WEBHOOK_HOSTS:
+        return f"Webhook 域名不在飞书/Lark 白名单内: {host or '空'}"
+    if not p.path.startswith("/open-apis/bot/"):
+        return "Webhook 路径不是飞书机器人 webhook（应以 /open-apis/bot/ 开头）"
+    return None
+
+
 _DIR_CN = {
     "LONG": "看涨",
     "SHORT": "看跌",
@@ -61,6 +89,9 @@ def send_text(
     url = (webhook_url if webhook_url is not None else settings.get("feishu_webhook_url") or "").strip()
     if not url:
         return False, "未配置 Webhook URL"
+    err = _validate_feishu_url(url)
+    if err:
+        return False, err
     sec = (secret if secret is not None else settings.get("feishu_secret") or "").strip()
 
     payload: dict[str, Any] = {

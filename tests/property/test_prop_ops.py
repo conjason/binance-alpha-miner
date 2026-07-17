@@ -226,10 +226,8 @@ def test_all_ts_ops_no_nan_inf_random(N: int, T: int) -> None:
     y = _randn_tensor(N, T)
 
     for name, fn, arity in _TS_OPS:
-        if arity == 1:
-            out = fn(x)
-        else:  # arity == 2 (TS_CORR_10)
-            out = fn(x, y)
+        # 按 arity 传对应个数的操作数（3-arity 如 IF_GT/GATE 需要 3 个，避免 TypeError）
+        out = fn(*([x] + [y] * (arity - 1)))
 
         assert not torch.isnan(out).any(), (
             f"{name}: NaN found in output (random input, N={N}, T={T})"
@@ -254,10 +252,8 @@ def test_all_ts_ops_no_nan_inf_zeros(N: int, T: int) -> None:
     y = torch.zeros(N, T)
 
     for name, fn, arity in _TS_OPS:
-        if arity == 1:
-            out = fn(x)
-        else:
-            out = fn(x, y)
+        # 按 arity 传对应个数的操作数（3-arity 如 IF_GT/GATE 需要 3 个，避免 TypeError）
+        out = fn(*([x] + [y] * (arity - 1)))
 
         assert not torch.isnan(out).any(), (
             f"{name}: NaN found with zero input (N={N}, T={T})"
@@ -282,10 +278,8 @@ def test_all_ts_ops_no_nan_inf_large_values(N: int, T: int) -> None:
     y = torch.full((N, T), -1e8)
 
     for name, fn, arity in _TS_OPS:
-        if arity == 1:
-            out = fn(x)
-        else:
-            out = fn(x, y)
+        # 按 arity 传对应个数的操作数（3-arity 如 IF_GT/GATE 需要 3 个，避免 TypeError）
+        out = fn(*([x] + [y] * (arity - 1)))
 
         assert not torch.isnan(out).any(), (
             f"{name}: NaN found with large-value input (N={N}, T={T})"
@@ -317,10 +311,8 @@ def test_all_ts_ops_no_nan_inf_constant_input(N: int, T: int, const_val: float) 
     y = torch.full((N, T), const_val + 1.0)  # distinct constant for TS_CORR_10
 
     for name, fn, arity in _TS_OPS:
-        if arity == 1:
-            out = fn(x)
-        else:
-            out = fn(x, y)
+        # 按 arity 传对应个数的操作数（3-arity 如 IF_GT/GATE 需要 3 个，避免 TypeError）
+        out = fn(*([x] + [y] * (arity - 1)))
 
         assert not torch.isnan(out).any(), (
             f"{name}: NaN found with constant input (val={const_val:.3g}, N={N}, T={T})"

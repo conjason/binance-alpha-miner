@@ -95,7 +95,11 @@ class TestFeatureNamesSmoke:
         )
 
     def test_feature_names_length_matches_input_dim(self):
-        """FEATURE_NAMES 的长度应等于 Config.INPUT_DIM（20）"""
+        """FEATURE_NAMES 的长度应等于权威的 MT5FeatureEngineer.INPUT_DIM。
+
+        注意：根 Config.INPUT_DIM 是非权威的静态占位值（config.py 已注明“不生效”），
+        真正的特征维度由 model_core.features 动态派生，故此处对齐后者。
+        """
         feature_names = _get_feature_names()
         if feature_names is None:
             pytest.skip("model_core.vocab.FEATURE_NAMES not available yet (pending task 5.1)")
@@ -104,7 +108,8 @@ class TestFeatureNamesSmoke:
                 "vocab.py still contains old Solana features — "
                 "pending task 5.1 (MT5FeatureEngineer implementation)"
             )
-        assert len(feature_names) == Config.INPUT_DIM, (
-            f"Expected len(FEATURE_NAMES) == {Config.INPUT_DIM}, "
-            f"got {len(feature_names)}: {feature_names}"
+        from model_core.features import MT5FeatureEngineer
+        assert len(feature_names) == MT5FeatureEngineer.INPUT_DIM, (
+            f"Expected len(FEATURE_NAMES) == {MT5FeatureEngineer.INPUT_DIM}, "
+            f"got {len(feature_names)}"
         )

@@ -50,8 +50,9 @@ class TestComputeFeaturesShape:
     def test_output_shape_default(self):
         raw = _make_raw_dict(N=3, T=50)
         out = MT5FeatureEngineer.compute_features(raw)
-        assert out.shape == (3, 20, 50), (
-            f"Expected shape (3, 20, 50), got {tuple(out.shape)}"
+        F = MT5FeatureEngineer.INPUT_DIM
+        assert out.shape == (3, F, 50), (
+            f"Expected shape (3, {F}, 50), got {tuple(out.shape)}"
         )
 
     def test_output_ndim(self):
@@ -59,11 +60,11 @@ class TestComputeFeaturesShape:
         out = MT5FeatureEngineer.compute_features(raw)
         assert out.ndim == 3
 
-    def test_feature_dim_equals_10(self):
-        """feature 维度固定为 20，对应 INPUT_DIM（需求 F1.7）"""
+    def test_feature_dim_matches_input_dim(self):
+        """feature 维度应等于权威的 INPUT_DIM（本 fork 已扩展，不写死数值）。"""
         raw = _make_raw_dict(N=3, T=50)
         out = MT5FeatureEngineer.compute_features(raw)
-        assert out.shape[1] == 20
+        assert out.shape[1] == MT5FeatureEngineer.INPUT_DIM
 
     def test_time_dim_preserved(self):
         """T 维度应与输入完全一致（需求 F1.1）"""

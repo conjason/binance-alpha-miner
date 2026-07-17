@@ -93,9 +93,10 @@ def test_compute_features_shape_and_nan_free(N: int, T: int):
     raw_dict = _make_ohlcv(N, T)
     out = MT5FeatureEngineer.compute_features(raw_dict)
 
-    # Shape invariant: 20 features (expanded from 10)
-    assert out.shape == (N, 20, T), (
-        f"Expected shape ({N}, 20, {T}), got {tuple(out.shape)}"
+    # Shape invariant: 特征数 == 权威 INPUT_DIM（本 fork 已扩展，不写死数值）
+    F = MT5FeatureEngineer.INPUT_DIM
+    assert out.shape == (N, F, T), (
+        f"Expected shape ({N}, {F}, {T}), got {tuple(out.shape)}"
     )
 
     # NaN safety

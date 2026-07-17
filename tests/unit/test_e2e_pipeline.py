@@ -46,26 +46,24 @@ def _make_ohlcv(N: int = 3, T: int = 200, seed: int = 42) -> dict:
 
 class TestKeyNumbers:
     def test_feature_count(self):
-        """特征数应 == 65（8 大类全覆盖，R1.1）。"""
-        assert len(FEATURE_NAMES) == 65, (
-            f"期望 65 个特征，实际 {len(FEATURE_NAMES)}"
-        )
+        """特征数与 INPUT_DIM 一致，且不少于基础 65 个（本 fork 新增 12 个另类因子）。"""
+        assert len(FEATURE_NAMES) == MT5FeatureEngineer.INPUT_DIM
+        assert len(FEATURE_NAMES) >= 65, f"特征数异常: {len(FEATURE_NAMES)}"
 
     def test_operator_count(self):
-        """算子数应 == 66（含 CS_RANK/CS_SCALE/CS_NEUTRALIZE 等新增）。"""
-        assert len(OPS_CONFIG) == 66, (
-            f"期望 66 个算子，实际 {len(OPS_CONFIG)}"
+        """算子数 == vocab 中的 operator token 数（OPS_CONFIG 与注册表一致）。"""
+        assert len(OPS_CONFIG) == len(FORMULA_VOCAB.operator_names), (
+            f"OPS_CONFIG={len(OPS_CONFIG)} 与 operator_names="
+            f"{len(FORMULA_VOCAB.operator_names)} 不一致"
         )
 
     def test_vocab_size(self):
-        """词表总大小 == 65 + 66 == 131。"""
-        assert FORMULA_VOCAB.size == 131, (
-            f"期望 vocab size=131，实际 {FORMULA_VOCAB.size}"
-        )
+        """词表总大小 == 特征数 + 算子数（不变量，不写死具体数值）。"""
+        assert FORMULA_VOCAB.size == len(FEATURE_NAMES) + len(FORMULA_VOCAB.operator_names)
 
     def test_feat_offset(self):
-        """feat_offset == 65（feature token id ∈ [0,64]，operator id ∈ [65,130]）。"""
-        assert FORMULA_VOCAB.operator_offset == 65
+        """feat_offset == 特征数（feature token id 在前，operator id 在后）。"""
+        assert FORMULA_VOCAB.operator_offset == len(FEATURE_NAMES)
 
     def test_vocab_version_format(self):
         """VOCAB_VERSION 以 'v' 开头，后跟 12 位十六进制。"""
@@ -88,8 +86,8 @@ class TestComputeFeatures:
     def test_shape(self):
         raw = _make_ohlcv(N=3, T=200)
         feats = MT5FeatureEngineer.compute_features(raw)
-        assert feats.shape == (3, 65, 200), (
-            f"features 形状期望 [3,65,200]，实际 {tuple(feats.shape)}"
+        assert feats.shape == (3, len(FEATURE_NAMES), 200), (
+            f"features 形状期望 [3,{len(FEATURE_NAMES)},200]，实际 {tuple(feats.shape)}"
         )
 
     def test_nan_safe(self):
@@ -118,13 +116,13 @@ class TestStackVM:
         assert not torch.isnan(result).any()
         assert not torch.isinf(result).any()
 
-    def test_feat_offset_is_65(self):
+    def test_feat_offset_matches_feature_count(self):
         vm = StackVM()
-        assert vm.feat_offset == 65
+        assert vm.feat_offset == len(FEATURE_NAMES)
 
-    def test_op_map_size_is_66(self):
+    def test_op_map_size_matches_ops_config(self):
         vm = StackVM()
-        assert len(vm.op_map) == 66
+        assert len(vm.op_map) == len(OPS_CONFIG)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -271,9 +269,9 @@ def test_full_pipeline_smoke(tmp_path):
     # 1. 构造随机 OHLCV（N=3, T=200）
     raw = _make_ohlcv(N=3, T=200, seed=99)
 
-    # 2. compute_features → [3, 65, 200]
+    # 2. compute_features → [3, F, 200]
     feats = MT5FeatureEngineer.compute_features(raw)
-    assert feats.shape == (3, 65, 200), f"特征形状错误: {tuple(feats.shape)}"
+    assert feats.shape == (3, len(FEATURE_NAMES), 200), f"特征形状错误: {tuple(feats.shape)}"
     assert not torch.isnan(feats).any()
 
     # 3. VM 执行简单公式 → [3, 200]

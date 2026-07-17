@@ -58,9 +58,11 @@ setup_logging()
 logger = get_logger()
 
 app = FastAPI(title="BinanceAlphaMiner Training", version="1.1.0")
+# 安全：只允许同机 localhost 来源跨域，禁止任意站点(*)读取本地 API 响应
+# （本地服务无鉴权，`*` 会让任意网页跨域读到 settings 等接口内容）。
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origin_regex=r"^https?://(127\.0\.0\.1|localhost)(:\d+)?$",
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -387,7 +389,8 @@ def api_config() -> dict[str, Any]:
         "strategy_file": strat_ctx["strategy_file"],
         "debug_mode": load_settings().get("debug_mode", False),
         "ai_provider": load_settings().get("ai_provider", "deepseek"),
-        "ai_api_key": load_settings().get("ai_api_key", ""),
+        # 安全：不回传明文 AI Key，只回传是否已配置（避免本地无鉴权接口泄露密钥）
+        "has_api_key": bool(load_settings().get("ai_api_key")),
         "bt_commission_pct": settings.get("bt_commission_pct", 0.02),
         "bt_slippage_pct": settings.get("bt_slippage_pct", 0.01),
         "server_log": snap["server_log"],
@@ -1047,10 +1050,14 @@ def api_realtime_stop() -> dict[str, Any]:
 @app.get("/api/realtime/feishu")
 def api_realtime_feishu_get() -> dict[str, Any]:
     s = load_settings()
+    # 安全：webhook_url 内含机器人 token、secret 是签名密钥，均不回传明文，
+    # 只回传是否已配置（本地接口无鉴权，明文回传等于泄露）。
     return {
         "enabled": bool(s.get("feishu_enabled")),
-        "webhook_url": s.get("feishu_webhook_url") or "",
-        "secret": s.get("feishu_secret") or "",
+        "webhook_url": "",
+        "secret": "",
+        "has_webhook": bool((s.get("feishu_webhook_url") or "").strip()),
+        "has_secret": bool((s.get("feishu_secret") or "").strip()),
     }
 
 
@@ -1059,16 +1066,20 @@ def api_realtime_feishu_put(req: FeishuSettingsRequest) -> dict[str, Any]:
     payload: dict[str, Any] = {}
     if req.enabled is not None:
         payload["feishu_enabled"] = bool(req.enabled)
-    if req.webhook_url is not None:
-        payload["feishu_webhook_url"] = req.webhook_url
-    if req.secret is not None:
-        payload["feishu_secret"] = req.secret
+    # 安全：仅在传入非空值时更新（前端因掩码显示为空，空值不应覆盖已存密钥）
+    if req.webhook_url is not None and req.webhook_url.strip():
+        payload["feishu_webhook_url"] = req.webhook_url.strip()
+    if req.secret is not None and req.secret.strip():
+        payload["feishu_secret"] = req.secret.strip()
     saved = save_settings(payload)
+    # 安全：不回传明文，只回传是否已配置
     return {
         "ok": True,
         "enabled": bool(saved.get("feishu_enabled")),
-        "webhook_url": saved.get("feishu_webhook_url") or "",
-        "secret": saved.get("feishu_secret") or "",
+        "webhook_url": "",
+        "secret": "",
+        "has_webhook": bool((saved.get("feishu_webhook_url") or "").strip()),
+        "has_secret": bool((saved.get("feishu_secret") or "").strip()),
     }
 
 

@@ -5,7 +5,7 @@ if not ckpt_files:
     print('No checkpoints')
 else:
     latest = ckpt_files[-1]
-    state = torch.load(latest, map_location='cpu')
+    state = torch.load(latest, map_location='cpu', weights_only=True)
     print(f'Checkpoint: {latest}')
     print(f"step: {state.get('step', '?')}")
     print(f"best_score: {state.get('best_score', float('nan')):.4f}")

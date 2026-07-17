@@ -68,8 +68,9 @@ def test_property3_feature_tensor_shape(n: int, t: int):
     raw_dict = _make_raw_dict(n, t)
     features = MT5FeatureEngineer.compute_features(raw_dict)
 
-    assert features.shape == (n, 20, t), (
-        f"Expected shape ({n}, 20, {t}), got {tuple(features.shape)}"
+    F = MT5FeatureEngineer.INPUT_DIM
+    assert features.shape == (n, F, t), (
+        f"Expected shape ({n}, {F}, {t}), got {tuple(features.shape)}"
     )
 
 
